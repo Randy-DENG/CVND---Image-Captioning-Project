@@ -37,7 +37,7 @@ class DecoderRNN(nn.Module):
         self.hidden2tag = nn.Linear(hidden_size, vocab_size)
     
     def forward(self, features, captions):
-        # Initialize hidden state each forward step
+        # Initialize hidden state each forward step, shape: [num_layers, batch, hidden_size]
         self.hidden = (torch.zeros(self.num_layers, features.shape[0], self.hidden_size), torch.zeros(self.num_layers, features.shape[0], self.hidden_size))
         # Transpose captions shape from [batch, seq_len] to [seq_len, batch]
         captions_transposed = captions.permute(1, 0)
@@ -58,4 +58,22 @@ class DecoderRNN(nn.Module):
 
     def sample(self, inputs, states=None, max_len=20):
         " accepts pre-processed image tensor (inputs) and returns predicted sentence (list of tensor ids of length max_len) "
-        pass
+        # Initialize hidden state
+        hidden = (torch.zeros(self.num_layers, 1, self.hidden_size), torch.zeros(self.num_layers, 1, self.hidden_size))
+        # Initialize output list
+        output = []
+        # The input of each time step to pass into LSTM
+        out = inputs
+        for i in range(max_len):
+            out, hidden = self.lstm(out.view(1, 1, -1), hidden)
+            tag = self.hidden2tag(out)
+            tag_score = F.log_softmax(tag.view(1, -1))
+            # Add the index of max score in the output list
+            output.append(torch.max(tag_score, 1)[1])
+            # Quit the loop if the output of the model is the end symbol of a sentence
+            if output[-1] == 1:
+                break
+            # Embed the word before passing into LSTM
+            out = self.word_embeddings(output[-1])
+        return output
+        
