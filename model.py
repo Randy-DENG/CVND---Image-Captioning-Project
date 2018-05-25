@@ -2,8 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as models
-import numpy as np
-
 
 class EncoderCNN(nn.Module):
     def __init__(self, embed_size):
@@ -30,27 +28,33 @@ class DecoderRNN(nn.Module):
         self.hidden_size = hidden_size
         self.vocab_size = vocab_size
         self.num_layers = num_layers
-        self.word_embeddings = nn.Embedding(vocab_size, embed_size)
-        self.lstm = nn.LSTM(embed_size, hidden_size)
-        self.hidden2tag = nn.Linear(hidden_size, vocab_size)
         self.hidden = 0
+        # Add embedding layers to embed words
+        self.word_embeddings = nn.Embedding(vocab_size, embed_size)
+        # Add LSTM layer
+        self.lstm = nn.LSTM(embed_size, hidden_size)
+        # Add Linear layers to map hidden_size to vocab_size
+        self.hidden2tag = nn.Linear(hidden_size, vocab_size)
     
     def forward(self, features, captions):
+        # Initialize hidden state each forward step
         self.hidden = (torch.zeros(self.num_layers, features.shape[0], self.hidden_size), torch.zeros(self.num_layers, features.shape[0], self.hidden_size))
-        captions_transposed = torch.from_numpy(np.transpose(captions.cpu().numpy(), (1, 0))).cuda()
+        # Transpose captions shape from [batch, seq_len] to [seq_len, batch]
+        captions_transposed = captions.permute(1, 0)
+        # Words embedding
         embeds = self.word_embeddings(captions_transposed)
-        print(embeds.shape)
-        print("feature:", features.view(1, len(features), -1).shape)
+        # Joint the features from images with the embedded captions, chape: [seq_len, batch, embed_size] 
         inputs = torch.cat([features.view(1, len(features), -1), embeds], 0)
-        print("inputs:", inputs.shape)
+        # Remove the last element: "<end>"
+        inputs = inputs[:-1]
+        # Pass inputs and hidden into LSTM
         lstm_out, self.hidden = self.lstm(inputs, self.hidden)
-        print("lstm_out:", lstm_out.shape)
-        print("self.hidden:", self.hidden.shape)
+        # Pass into Linear layer
         tag_space = self.hidden2tag(lstm_out)
-        print("tag_space:", tag_space.shape)
+        # Softmax scores
         tag_scores = F.log_softmax(tag_space, dim=2)
-        print("tag_scores:", tag_scores.shape)
-        return torch.from_numpy(np.transpose(tag_scores.cpu().numpy(), (1, 0, 2))).cuda()
+        # Transpose tag_scores shape from [seq_len, batch, vocab_size] to [batch, seq_len, vocab_size]
+        return tag_scores.permute(1, 0, 2)
 
     def sample(self, inputs, states=None, max_len=20):
         " accepts pre-processed image tensor (inputs) and returns predicted sentence (list of tensor ids of length max_len) "
